@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validar sintaxe Python
+        run: python -m compileall -q common services client
+
+      - name: Validar Docker Compose
+        run: docker compose config
+
+      - name: Subir broker e microsserviços
+        run: docker compose up --build -d mqtt driver-service vehicle-service fine-service
+
+      - name: Executar cenário ponta a ponta
+        run: docker compose --profile demo run --rm demo
+
+      - name: Exibir logs em caso de falha
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Encerrar ambiente
+        if: always()
+        run: docker compose down -v
