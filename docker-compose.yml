@@ -1,0 +1,111 @@
+services:
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    container_name: detran-mqtt-broker
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -t '$$SYS/broker/version' -C 1 -W 3 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+
+  driver-service:
+    build:
+      context: .
+      dockerfile: services/driver_service/Dockerfile
+    container_name: detran-driver-service
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      DB_PATH: /data/drivers.db
+    volumes:
+      - driver-data:/data
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    restart: unless-stopped
+
+  vehicle-service:
+    build:
+      context: .
+      dockerfile: services/vehicle_service/Dockerfile
+    container_name: detran-vehicle-service
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      DB_PATH: /data/vehicles.db
+    volumes:
+      - vehicle-data:/data
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fine-service:
+    build:
+      context: .
+      dockerfile: services/fine_service/Dockerfile
+    container_name: detran-fine-service
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      DB_PATH: /data/fines.db
+    volumes:
+      - fine-data:/data
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      driver-service:
+        condition: service_started
+      vehicle-service:
+        condition: service_started
+    restart: unless-stopped
+
+  client:
+    profiles: ["cli"]
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      driver-service:
+        condition: service_started
+      vehicle-service:
+        condition: service_started
+      fine-service:
+        condition: service_started
+    stdin_open: true
+    tty: true
+
+  demo:
+    profiles: ["demo"]
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    command: ["python", "app.py", "--demo"]
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      driver-service:
+        condition: service_started
+      vehicle-service:
+        condition: service_started
+      fine-service:
+        condition: service_started
+
+volumes:
+  mosquitto-data:
+  driver-data:
+  vehicle-data:
+  fine-data:
